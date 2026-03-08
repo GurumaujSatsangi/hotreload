@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/fsnotify/fsnotify"
 )
@@ -38,9 +39,13 @@ func NewWatcher(root string) (*Watcher, error) {
 					return
 				}
 
+				if shouldIgnoreEventPath(event.Name) {
+					continue
+				}
+
 				if event.Op&fsnotify.Create != 0 {
 					info, err := os.Stat(event.Name)
-					if err == nil && info.IsDir() {
+					if err == nil && info.IsDir() && !shouldIgnoreDirPath(event.Name) {
 						_ = addDirectoryTree(w, event.Name)
 					}
 				}
@@ -75,6 +80,9 @@ func addDirectoryTree(w *fsnotify.Watcher, root string) error {
 		if err != nil {
 			return nil
 		}
+		if d.IsDir() && shouldIgnoreDirName(d.Name()) {
+			return filepath.SkipDir
+		}
 		if !d.IsDir() {
 			return nil
 		}
@@ -86,4 +94,39 @@ func addDirectoryTree(w *fsnotify.Watcher, root string) error {
 		}
 		return nil
 	})
+}
+
+func shouldIgnoreDirName(name string) bool {
+	switch strings.ToLower(name) {
+	case ".git", "node_modules", "bin", "tmp":
+		return true
+	default:
+		return false
+	}
+}
+
+func shouldIgnoreDirPath(path string) bool {
+	cleaned := filepath.Clean(path)
+	parts := strings.Split(cleaned, string(os.PathSeparator))
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		if shouldIgnoreDirName(part) {
+			return true
+		}
+	}
+	return false
+}
+
+func shouldIgnoreTempFile(name string) bool {
+	lower := strings.ToLower(name)
+	return strings.HasSuffix(lower, "~") || strings.HasSuffix(lower, ".swp") || strings.HasSuffix(lower, ".tmp")
+}
+
+func shouldIgnoreEventPath(path string) bool {
+	if shouldIgnoreDirPath(path) {
+		return true
+	}
+	return shouldIgnoreTempFile(filepath.Base(path))
 }

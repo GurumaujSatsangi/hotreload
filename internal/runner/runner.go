@@ -12,11 +12,11 @@ import (
 )
 
 type Runner struct {
-	cfg                config.Config
-	cmd                *exec.Cmd
-	done               chan struct{}
-	mu                 sync.Mutex
-	stopRequested      bool
+	cfg                 config.Config
+	cmd                 *exec.Cmd
+	done                chan struct{}
+	mu                  sync.Mutex
+	stopRequested       bool
 	restartAllowedAfter time.Time
 }
 

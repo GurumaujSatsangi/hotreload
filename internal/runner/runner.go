@@ -35,6 +35,7 @@ func (r *Runner) Start() error {
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
 	cmd.Dir = r.cfg.RootDir
+	configureProcessGroup(cmd)
 
 	if err := cmd.Start(); err != nil {
 		return err
@@ -57,11 +58,16 @@ func (r *Runner) Stop() error {
 		return nil
 	}
 
-	if err := r.cmd.Process.Kill(); err != nil {
+	if err := killProcessGroup(r.cmd); err != nil {
 		return err
 	}
 
 	if err := r.cmd.Wait(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			r.cmd = nil
+			return nil
+		}
 		r.cmd = nil
 		return err
 	}

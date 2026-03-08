@@ -23,6 +23,9 @@ type buildResult struct {
 }
 
 func main() {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	slog.SetDefault(logger)
+
 	var root string
 	var build string
 	var exec string
@@ -63,7 +66,7 @@ func main() {
 		id := buildID
 		latestID = id
 
-		ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancel(appCtx)
 		cancelBuild = cancel
 
 		slog.Info("build started", "id", id, "reason", reason)

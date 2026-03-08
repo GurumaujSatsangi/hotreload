@@ -8,18 +8,14 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/GurumaujSatsangi/hotreload/internal/config"
 )
 
 type Runner struct {
-	cfg                 config.Config
-	cmd                 *exec.Cmd
-	done                chan struct{}
-	mu                  sync.Mutex
-	stopRequested       bool
-	restartAllowedAfter time.Time
+	cfg config.Config
+	cmd *exec.Cmd
+	mu  sync.Mutex
 }
 
 func NewRunner(cfg config.Config) *Runner {
@@ -27,89 +23,65 @@ func NewRunner(cfg config.Config) *Runner {
 }
 
 func (r *Runner) Start() error {
-	for {
-		r.mu.Lock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
-		if r.cmd != nil && r.cmd.Process != nil {
-			r.mu.Unlock()
+	if r.cmd != nil && r.cmd.Process != nil {
+		if r.cmd.ProcessState != nil && r.cmd.ProcessState.Exited() {
+			_ = r.cmd.Wait()
+			r.cmd = nil
+		} else {
 			return errors.New("process already running")
 		}
-
-		delay := time.Until(r.restartAllowedAfter)
-		if delay > 0 {
-			r.mu.Unlock()
-			time.Sleep(delay)
-			continue
-		}
-
-		cmd, err := commandForExec(r.cfg.ExecCmd)
-		if err != nil {
-			r.mu.Unlock()
-			return err
-		}
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		cmd.Stdin = os.Stdin
-		cmd.Dir = r.cfg.RootDir
-		configureProcessGroup(cmd)
-
-		if err := cmd.Start(); err != nil {
-			r.mu.Unlock()
-			return err
-		}
-
-		r.stopRequested = false
-		r.cmd = cmd
-		r.done = make(chan struct{})
-		startedAt := time.Now()
-		done := r.done
-		r.mu.Unlock()
-
-		go r.waitProcess(cmd, done, startedAt)
-		return nil
 	}
+
+	cmd, err := commandForExec(r.cfg.ExecCmd)
+	if err != nil {
+		return err
+	}
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+	cmd.Dir = r.cfg.RootDir
+	configureProcessGroup(cmd)
+
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+
+	r.cmd = cmd
+	return nil
 }
 
 func (r *Runner) Stop() error {
 	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	if r.cmd == nil || r.cmd.Process == nil {
-		r.mu.Unlock()
+		r.cmd = nil
 		return nil
 	}
 
-	r.stopRequested = true
 	cmd := r.cmd
-	done := r.done
-	r.mu.Unlock()
+	if cmd.ProcessState != nil && cmd.ProcessState.Exited() {
+		_ = cmd.Wait()
+		r.cmd = nil
+		return nil
+	}
 
-	if err := killProcessGroup(cmd); err != nil {
+	if err := cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		return err
 	}
 
-	if done != nil {
-		<-done
+	if err := cmd.Wait(); err != nil {
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) && !errors.Is(err, os.ErrProcessDone) {
+			return err
+		}
 	}
 
+	r.cmd = nil
 	return nil
-}
-
-func (r *Runner) waitProcess(cmd *exec.Cmd, done chan struct{}, startedAt time.Time) {
-	_ = cmd.Wait()
-
-	r.mu.Lock()
-	runtime := time.Since(startedAt)
-	stopRequested := r.stopRequested
-	if r.cmd == cmd {
-		r.cmd = nil
-		r.done = nil
-	}
-	r.stopRequested = false
-	if !stopRequested && runtime < 2*time.Second {
-		r.restartAllowedAfter = time.Now().Add(3 * time.Second)
-	}
-	r.mu.Unlock()
-
-	close(done)
 }
 
 func commandForExec(command string) (*exec.Cmd, error) {

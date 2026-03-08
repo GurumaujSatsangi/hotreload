@@ -4,7 +4,9 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -40,7 +42,11 @@ func (r *Runner) Start() error {
 			continue
 		}
 
-		cmd := commandForShell(r.cfg.ExecCmd)
+		cmd, err := commandForExec(r.cfg.ExecCmd)
+		if err != nil {
+			r.mu.Unlock()
+			return err
+		}
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		cmd.Stdin = os.Stdin
@@ -106,9 +112,38 @@ func (r *Runner) waitProcess(cmd *exec.Cmd, done chan struct{}, startedAt time.T
 	close(done)
 }
 
-func commandForShell(command string) *exec.Cmd {
-	if runtime.GOOS == "windows" {
-		return exec.Command("cmd", "/C", command)
+func commandForExec(command string) (*exec.Cmd, error) {
+	parts := strings.Fields(command)
+	if len(parts) == 0 {
+		return nil, errors.New("empty exec command")
 	}
-	return exec.Command("sh", "-c", command)
+
+	parts[0] = normalizeExecutable(parts[0])
+	return exec.Command(parts[0], parts[1:]...), nil
+}
+
+func normalizeExecutable(target string) string {
+	if runtime.GOOS != "windows" {
+		return target
+	}
+	if !isLocalExecutable(target) {
+		return target
+	}
+	if filepath.Ext(target) != "" {
+		return target
+	}
+	return target + ".exe"
+}
+
+func isLocalExecutable(target string) bool {
+	if filepath.IsAbs(target) {
+		return true
+	}
+	if strings.HasPrefix(target, ".") {
+		return true
+	}
+	if strings.Contains(target, "/") || strings.Contains(target, "\\") {
+		return true
+	}
+	return false
 }

@@ -23,6 +23,8 @@ type buildResult struct {
 }
 
 func main() {
+
+	println("program started")
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	slog.SetDefault(logger)
 

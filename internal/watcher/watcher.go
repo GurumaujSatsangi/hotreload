@@ -39,14 +39,11 @@ func NewWatcher(root string) (*Watcher, error) {
 					return
 				}
 
-				if shouldIgnoreEventPath(event.Name) {
-					continue
-				}
-
 				if event.Op&fsnotify.Create != 0 {
 					info, err := os.Stat(event.Name)
 					if err == nil && info.IsDir() && !shouldIgnoreDirPath(event.Name) {
 						_ = addDirectoryTree(w, event.Name)
+						continue
 					}
 				}
 
@@ -54,6 +51,10 @@ func NewWatcher(root string) (*Watcher, error) {
 					if _, err := os.Stat(event.Name); err != nil {
 						_ = w.Remove(event.Name)
 					}
+				}
+
+				if !shouldEmitRebuildEvent(event.Name) {
+					continue
 				}
 
 				if event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Remove) != 0 {
@@ -124,9 +125,29 @@ func shouldIgnoreTempFile(name string) bool {
 	return strings.HasSuffix(lower, "~") || strings.HasSuffix(lower, ".swp") || strings.HasSuffix(lower, ".tmp")
 }
 
-func shouldIgnoreEventPath(path string) bool {
-	if shouldIgnoreDirPath(path) {
+func shouldIgnoreBuildArtifact(path string) bool {
+	name := strings.ToLower(filepath.Base(path))
+	ext := strings.ToLower(filepath.Ext(path))
+	if ext == ".exe" || ext == ".out" || ext == ".tmp" {
 		return true
 	}
-	return shouldIgnoreTempFile(filepath.Base(path))
+	return name == "server" || name == "server.exe"
+}
+
+func isRelevantSourceFile(path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	return ext == ".go" || ext == ".mod" || ext == ".sum"
+}
+
+func shouldEmitRebuildEvent(path string) bool {
+	if shouldIgnoreDirPath(path) {
+		return false
+	}
+	if shouldIgnoreTempFile(filepath.Base(path)) {
+		return false
+	}
+	if shouldIgnoreBuildArtifact(path) {
+		return false
+	}
+	return isRelevantSourceFile(path)
 }

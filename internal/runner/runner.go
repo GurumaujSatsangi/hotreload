@@ -2,7 +2,6 @@ package runner
 
 import (
 	"errors"
-	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,12 +33,10 @@ func (r *Runner) Restart() error {
 	defer r.mu.Unlock()
 
 	if err := r.stopLocked(); err != nil {
-		slog.Error("failed to stop running server", "error", err)
 		return err
 	}
 
 	if err := r.startLocked(); err != nil {
-		slog.Error("failed to start server", "error", err)
 		return err
 	}
 

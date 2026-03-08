@@ -4,10 +4,11 @@ import (
 	"context"
 	"errors"
 	"flag"
-	"log/slog"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/GurumaujSatsangi/hotreload/internal/builder"
 
@@ -23,10 +24,7 @@ type buildResult struct {
 }
 
 func main() {
-
-	println("program started")
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	slog.SetDefault(logger)
+	logInfo("Startup")
 
 	var root string
 	var build string
@@ -38,13 +36,14 @@ func main() {
 	flag.Parse()
 
 	cfg := config.NewConfig(root, build, exec)
-	slog.Info("config loaded", "root", cfg.RootDir, "build", cfg.BuildCmd, "exec", cfg.ExecCmd)
+	logInfo("Configuration loaded")
 
 	w, err := watcher.NewWatcher(cfg.RootDir)
 	if err != nil {
-		slog.Error("failed to create watcher", "error", err)
+		logError(fmt.Sprintf("Watcher initialization failed: %v", err))
 		os.Exit(1)
 	}
+	logInfo("Watcher started")
 
 	d := debounce.NewDebouncer(w.Events())
 	b := builder.NewBuilder(cfg)
@@ -58,6 +57,7 @@ func main() {
 	buildID := 0
 	latestID := 0
 	var cancelBuild context.CancelFunc
+	serverRunning := false
 
 	startBuild := func(reason string) {
 		if cancelBuild != nil {
@@ -71,7 +71,7 @@ func main() {
 		ctx, cancel := context.WithCancel(appCtx)
 		cancelBuild = cancel
 
-		slog.Info("build started", "id", id, "reason", reason)
+		logInfo("Build started")
 
 		go func(buildCtx context.Context, currentID int) {
 			err := b.Build(buildCtx)
@@ -87,10 +87,15 @@ func main() {
 			if cancelBuild != nil {
 				cancelBuild()
 			}
-			if err := r.Stop(); err != nil {
-				slog.Error("failed to stop server", "error", err)
+			if serverRunning {
+				if err := r.Stop(); err != nil {
+					logError(fmt.Sprintf("Server stop failed: %v", err))
+				} else {
+					serverRunning = false
+					logInfo("Server stopped")
+				}
 			}
-			slog.Info("shutdown complete")
+			logInfo("Shutdown complete")
 			return
 
 		case _, ok := <-d.Output():
@@ -98,38 +103,68 @@ func main() {
 				if cancelBuild != nil {
 					cancelBuild()
 				}
-				if err := r.Stop(); err != nil {
-					slog.Error("failed to stop server", "error", err)
+				if serverRunning {
+					if err := r.Stop(); err != nil {
+						logError(fmt.Sprintf("Server stop failed: %v", err))
+					} else {
+						serverRunning = false
+						logInfo("Server stopped")
+					}
 				}
-				slog.Info("watch pipeline closed")
+				logInfo("Watch pipeline closed")
 				return
 			}
 
+			logInfo("File change detected")
 			startBuild("change")
 
 		case result := <-results:
 			if result.id != latestID {
-				slog.Info("discarded outdated build result", "id", result.id)
 				continue
 			}
 
 			if result.err != nil {
 				if errors.Is(result.err, context.Canceled) {
-					slog.Info("build canceled", "id", result.id)
+					logInfo("Build canceled")
 					continue
 				}
-				slog.Error("build failed", "id", result.id, "error", result.err)
+				logError(fmt.Sprintf("Build failed: %v", result.err))
 				continue
 			}
 
-			slog.Info("build succeeded", "id", result.id)
+			logInfo("Build succeeded")
 
-			if err := r.Restart(); err != nil {
-				slog.Error("failed to restart server", "error", err)
+			if !serverRunning {
+				if err := r.Start(); err != nil {
+					logError(fmt.Sprintf("Server start failed: %v", err))
+					continue
+				}
+				serverRunning = true
+				logInfo("Server started")
 				continue
 			}
 
-			slog.Info("server restarted")
+			if err := r.Stop(); err != nil {
+				logError(fmt.Sprintf("Server stop failed: %v", err))
+				continue
+			}
+			serverRunning = false
+			logInfo("Server stopped")
+
+			if err := r.Start(); err != nil {
+				logError(fmt.Sprintf("Server start failed: %v", err))
+				continue
+			}
+			serverRunning = true
+			logInfo("Server restarted")
 		}
 	}
+}
+
+func logInfo(message string) {
+	fmt.Printf("[%s] %s\n", time.Now().Format("15:04:05"), message)
+}
+
+func logError(message string) {
+	fmt.Printf("[%s] %s\n", time.Now().Format("15:04:05"), message)
 }

@@ -25,6 +25,21 @@ func NewRunner(cfg config.Config) *Runner {
 func (r *Runner) Start() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	return r.startLocked()
+}
+
+func (r *Runner) Restart() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if err := r.stopLocked(); err != nil {
+		return err
+	}
+
+	return r.startLocked()
+}
+
+func (r *Runner) startLocked() error {
 
 	if r.cmd != nil && r.cmd.Process != nil {
 		if r.cmd.ProcessState != nil && r.cmd.ProcessState.Exited() {
@@ -56,6 +71,10 @@ func (r *Runner) Start() error {
 func (r *Runner) Stop() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	return r.stopLocked()
+}
+
+func (r *Runner) stopLocked() error {
 
 	if r.cmd == nil || r.cmd.Process == nil {
 		r.cmd = nil

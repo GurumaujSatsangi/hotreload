@@ -124,13 +124,8 @@ func main() {
 
 			slog.Info("build succeeded", "id", result.id)
 
-			if err := r.Stop(); err != nil {
-				slog.Error("failed to stop server", "error", err)
-				continue
-			}
-
-			if err := r.Start(); err != nil {
-				slog.Error("failed to start server", "error", err)
+			if err := r.Restart(); err != nil {
+				slog.Error("failed to restart server", "error", err)
 				continue
 			}
 

@@ -9,7 +9,7 @@ import (
 func main() {
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "Hello Gurumauj Satsangi vit vellore cse")
+		fmt.Fprintf(w, "Hello Gurumauj Satsangi ")
 		fmt.Fprintf(os.Stdout, "%s %s\n", r.Method, r.URL.Path)
 		_, _ = w.Write([]byte("testserver running\n"))
 	})
